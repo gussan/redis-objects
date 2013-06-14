@@ -92,7 +92,7 @@ Here's an example that integrates several data types with an ActiveRecord model:
     class Team < ActiveRecord::Base
       include Redis::Objects
 
-      lock :trade_players, :expiration => 15  # sec
+      redis_lock :trade_players, :expiration => 15  # sec
       value :at_bat
       counter :hits
       counter :runs
@@ -408,7 +408,7 @@ a record ID and don't need any other attributes from the DB table:
 Locks work similarly. On completion or exception the lock is released:
 
     class Team < ActiveRecord::Base
-      lock :reorder # declare a lock
+      redis_lock :reorder # declare a lock
     end
 
     @team.reorder_lock.lock do
@@ -428,7 +428,7 @@ make sure you expiration value is sufficiently large compared to your expected
 lock time.
 
     class Team < ActiveRecord::Base
-      lock :reorder, :expiration => 15.minutes
+      redis_lock :reorder, :expiration => 15.minutes
     end
 
 Keep in mind that true locks serialize your entire application at that point.  As
@@ -438,4 +438,3 @@ Author
 =======
 Copyright (c) 2009-2013 [Nate Wiger](http://nateware.com).  All Rights Reserved.
 Released under the [Artistic License](http://www.opensource.org/licenses/artistic-license-2.0.php).
-

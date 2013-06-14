@@ -9,7 +9,7 @@ class Roster
   counter :pitchers, :limit => :max_pitchers
   counter :basic
   hash_key :contact_information, :marshal_keys=>{'updated_at'=>true}
-  lock :resort, :timeout => 2
+  redis_lock :resort, :timeout => 2
   value :starting_pitcher, :marshal => true
   list :player_stats, :marshal => true
   set :outfielders, :marshal => true
@@ -860,7 +860,7 @@ describe Redis::Objects do
     @roster.respond_to?(:extended_hash_key).should == false
 
     LockRoster = Class.new(Roster)
-    LockRoster.lock :extended
+    LockRoster.redis_lock :extended
     extended_roster = LockRoster.new
     extended_roster.resort_lock.should.be.kind_of(Redis::Lock)
     extended_roster.extended_lock.should.be.kind_of(Redis::Lock)
