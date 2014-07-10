@@ -1,6 +1,9 @@
 Redis::Objects - Map Redis types directly to Ruby objects
 =========================================================
 
+[![Build Status](https://travis-ci.org/nateware/redis-objects.png)](https://travis-ci.org/nateware/redis-objects)
+[![Donate](https://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=MJF7JU5M7F8VL)
+
 This is **not** an ORM. People that are wrapping ORM’s around Redis are missing the point.
 
 The killer feature of Redis is that it allows you to perform _atomic_ operations
@@ -86,6 +89,10 @@ For illustration purposes, consider this stub class:
     user.my_posts.increment
     user.my_posts.increment
     puts user.my_posts  # 3
+    user.my_posts.reset
+    puts user.my_posts.value # 0
+    user.my_posts.reset 5
+    puts user.my_posts.value # 5
 
 Here's an example that integrates several data types with an ActiveRecord model:
 
@@ -139,6 +146,17 @@ Counters can be atomically incremented/decremented (but not assigned):
     @team.hits.decrement  # or decr
     @team.hits.incr(3)    # add 3
     @team.runs = 4        # exception
+
+Defining a different method as the `id` field is easy
+
+    class User
+      include Redis::Objects
+      redis_id_field :uid
+      counter :my_posts
+    end
+
+    user.uid                # 195137a1bdea4473
+    user.my_posts.increment # 1
 
 Finally, for free, you get a `redis` method that points directly to a Redis connection:
 
@@ -433,6 +451,13 @@ lock time.
 
 Keep in mind that true locks serialize your entire application at that point.  As
 such, atomic counters are strongly preferred.
+
+### Expiration ###
+
+Use :expiration and :expireat options to set default expiration.
+
+    value :value_with_expiration, :expiration => 1.hour
+    value :value_with_expireat, :expireat => Time.now + 1.hour
 
 Author
 =======

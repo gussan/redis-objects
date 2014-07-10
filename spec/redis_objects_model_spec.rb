@@ -25,10 +25,27 @@ class Roster
   list :all_player_stats, :key => 'players:all_stats', :global => true
   set :total_wins, :key => 'players:#{id}:all_stats'
   value :my_rank, :key => 'players:my_rank:#{username}'
-  value :weird_key, :key => 'players:weird_key:#{raise}', :global => true
+
+  # now support class interpolation as well. not sure why not previously
+  def self.jimmyhat; 350; end
+  value :weird_key, :key => 'players:weird_key:#{jimmyhat}', :global => true
 
   #callable as key
   counter :daily, :global => true, :key => Proc.new { |roster| "#{roster.name}:#{Time.now.strftime('%Y-%m-%dT%H')}:daily" }
+
+  # set default expiration
+  value :value_with_expiration, :expiration => 10
+  value :value_with_expireat, :expireat => Time.now + 10.seconds
+  set :set_with_expiration, :expiration => 10
+  set :set_with_expireat, :expireat => Time.now + 10.seconds
+  list :list_with_expiration, :expiration => 10
+  list :list_with_expireat, :expireat => Time.now + 10.seconds
+  hash_key :hash_with_expiration, :expiration => 10
+  hash_key :hash_with_expireat, :expireat => Time.now + 10.seconds
+  counter :counter_with_expiration, :expiration => 10
+  counter :counter_with_expireat, :expireat => Time.now + 10.seconds
+  sorted_set :sorted_set_with_expiration,:expiration => 10
+  sorted_set :sorted_set_with_expireat, :expireat => Time.now + 10.seconds
 
   def initialize(id=1) @id = id end
   def id; @id; end
@@ -60,6 +77,17 @@ class CustomMethodRoster < MethodRoster
   include Redis::Objects
 
   attr_accessor :counter
+  counter :basic
+end
+
+class UidRoster < Roster
+  attr_accessor :uid
+  def initialize(uid=123) @uid = uid end
+end
+
+class CustomIdFieldRoster < UidRoster
+  redis_id_field :uid
+  include Redis::Objects
   counter :basic
 end
 
@@ -125,7 +153,7 @@ describe Redis::Objects do
     @roster.my_rank = 'a'
     @roster.redis.get('players:my_rank:user1').should == 'a'
     Roster.weird_key = 'tuka'
-    Roster.redis.get('players:weird_key:#{raise}').should == 'tuka'
+    Roster.redis.get("players:weird_key:#{Roster.jimmyhat}").should == 'tuka'
 
     k = "Roster:#{Time.now.strftime('%Y-%m-%dT%H')}:daily"
     @roster.daily.incr
@@ -501,30 +529,33 @@ describe Redis::Objects do
     @roster.player_stats.size.should == 4
     @roster.player_stats.should == ['a','c','f','j']
     @roster.player_stats.get.should == ['a','c','f','j']
+    @roster.player_stats.push *['h','i']
+    @roster.player_stats.should == ['a','c','f','j','h','i']
+    @roster.player_stats.get.should == ['a','c','f','j','h','i']
 
     i = -1
     @roster.player_stats.each do |st|
       st.should == @roster.player_stats[i += 1]
     end
-    @roster.player_stats.should == ['a','c','f','j']
-    @roster.player_stats.get.should == ['a','c','f','j']
+    @roster.player_stats.should == ['a','c','f','j','h','i']
+    @roster.player_stats.get.should == ['a','c','f','j','h','i']
 
     @roster.player_stats.each_with_index do |st,i|
       st.should == @roster.player_stats[i]
     end
-    @roster.player_stats.should == ['a','c','f','j']
-    @roster.player_stats.get.should == ['a','c','f','j']
+    @roster.player_stats.should == ['a','c','f','j','h','i']
+    @roster.player_stats.get.should == ['a','c','f','j','h','i']
 
     coll = @roster.player_stats.collect{|st| st}
-    coll.should == ['a','c','f','j']
-    @roster.player_stats.should == ['a','c','f','j']
-    @roster.player_stats.get.should == ['a','c','f','j']
+    coll.should == ['a','c','f','j','h','i']
+    @roster.player_stats.should == ['a','c','f','j','h','i']
+    @roster.player_stats.get.should == ['a','c','f','j','h','i']
 
     @roster.player_stats << 'a'
     coll = @roster.player_stats.select{|st| st == 'a'}
     coll.should == ['a','a']
-    @roster.player_stats.should == ['a','c','f','j','a']
-    @roster.player_stats.get.should == ['a','c','f','j','a']
+    @roster.player_stats.should == ['a','c','f','j','h','i','a']
+    @roster.player_stats.get.should == ['a','c','f','j','h','i','a']
   end
 
   it "should handle sets of simple values" do
@@ -577,19 +608,23 @@ describe Redis::Objects do
     @roster_1.outfielders.intersection(@roster_2.outfielders, @roster_3.outfielders).sort.should == ['d']
     @roster_1.outfielders.intersect(@roster_2.outfielders).sort.should == ['c','d','e']
     @roster_1.outfielders.inter(@roster_2.outfielders, @roster_3.outfielders).sort.should == ['d']
+
     @roster_1.outfielders.interstore(INTERSTORE_KEY, @roster_2.outfielders).should == 3
-    @roster_1.redis.smembers(INTERSTORE_KEY).sort.should == ['c','d','e']
+    @roster_1.redis.smembers(INTERSTORE_KEY).sort.map{|v| Marshal.restore(v)}.should == ['c','d','e']
+
     @roster_1.outfielders.interstore(INTERSTORE_KEY, @roster_2.outfielders, @roster_3.outfielders).should == 1
-    @roster_1.redis.smembers(INTERSTORE_KEY).sort.should == ['d']
+    @roster_1.redis.smembers(INTERSTORE_KEY).sort.map{|v| Marshal.restore(v)}.should == ['d']
 
     (@roster_1.outfielders | @roster_2.outfielders).sort.should == ['a','b','c','d','e','f','g']
     (@roster_1.outfielders + @roster_2.outfielders).sort.should == ['a','b','c','d','e','f','g']
     @roster_1.outfielders.union(@roster_2.outfielders).sort.should == ['a','b','c','d','e','f','g']
     @roster_1.outfielders.union(@roster_2.outfielders, @roster_3.outfielders).sort.should == ['a','b','c','d','e','f','g','l','m']
+
     @roster_1.outfielders.unionstore(UNIONSTORE_KEY, @roster_2.outfielders).should == 7
-    @roster_1.redis.smembers(UNIONSTORE_KEY).sort.should == ['a','b','c','d','e','f','g']
+    @roster_1.redis.smembers(UNIONSTORE_KEY).map{|v| Marshal.restore(v)}.sort.should == ['a','b','c','d','e','f','g']
+
     @roster_1.outfielders.unionstore(UNIONSTORE_KEY, @roster_2.outfielders, @roster_3.outfielders).should == 9
-    @roster_1.redis.smembers(UNIONSTORE_KEY).sort.should == ['a','b','c','d','e','f','g','l','m']
+    @roster_1.redis.smembers(UNIONSTORE_KEY).map{|v| Marshal.restore(v)}.sort.should == ['a','b','c','d','e','f','g','l','m']
   end
 
   it "should handle class-level global lists of simple values" do
@@ -844,6 +879,15 @@ describe Redis::Objects do
     @custom_method_roster.basic.should.be.kind_of(Redis::Counter)
   end
 
+  it "should persist object with custom id field name" do
+    @custom_id_field_roster = CustomIdFieldRoster.new()
+    @custom_id_field_roster.uid.should == 123 # sanity
+    @custom_id_field_roster.increment(:basic).should == 1
+    @custom_id_field_roster.basic.increment.should == 2
+    @custom_id_field_roster.basic.reset
+    @custom_id_field_roster.basic.should == 0
+  end
+
   it "should pick up class methods from superclass automatically" do
     CounterRoster = Class.new(Roster)
     CounterRoster.counter :extended_counter
@@ -893,5 +937,53 @@ describe Redis::Objects do
     extended_roster.rank.should.be.kind_of(Redis::SortedSet)
     extended_roster.extended_sorted_set.should.be.kind_of(Redis::SortedSet)
     @roster.respond_to?(:extended_sorted_set).should == false
+  end
+
+  it "should set time to live in seconds when expiration option assigned" do
+    @roster.value_with_expiration.value = 'val'
+    @roster.value_with_expiration.ttl.should > 0
+    @roster.value_with_expiration.ttl.should <= 10
+
+    @roster.set_with_expiration << 'val'
+    @roster.set_with_expiration.ttl.should > 0
+    @roster.set_with_expiration.ttl.should <= 10
+
+    @roster.list_with_expiration << 'val'
+    @roster.list_with_expiration.ttl.should > 0
+    @roster.list_with_expiration.ttl.should <= 10
+
+    @roster.hash_with_expiration[:foo] = :bar
+    @roster.hash_with_expiration.ttl.should > 0
+    @roster.hash_with_expiration.ttl.should <= 10
+
+    @roster.counter_with_expiration.increment
+    @roster.counter_with_expiration.ttl.should > 0
+    @roster.counter_with_expiration.ttl.should <= 10
+
+    @roster.sorted_set_with_expiration[:foo] = 1
+    @roster.sorted_set_with_expiration.ttl.should > 0
+    @roster.sorted_set_with_expiration.ttl.should <= 10
+  end
+
+  it "should set expiration when expireat option assigned" do
+    @roster.value_with_expireat.value = 'val'
+    @roster.value_with_expireat.ttl.should > 0
+    @roster.value_with_expireat.ttl.should <= 10
+
+    @roster.set_with_expireat << 'val'
+    @roster.set_with_expireat.ttl.should > 0
+    @roster.set_with_expireat.ttl.should <= 10
+
+    @roster.list_with_expireat << 'val'
+    @roster.list_with_expireat.ttl.should > 0
+    @roster.list_with_expireat.ttl.should <= 10
+
+    @roster.hash_with_expireat[:foo] = :bar
+    @roster.hash_with_expireat.ttl.should > 0
+    @roster.hash_with_expireat.ttl.should <= 10
+
+    @roster.sorted_set_with_expireat[:foo] = 1
+    @roster.sorted_set_with_expireat.ttl.should > 0
+    @roster.sorted_set_with_expireat.ttl.should <= 10
   end
 end
